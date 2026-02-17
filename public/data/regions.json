@@ -1,0 +1,106 @@
+[
+  {
+    "id": "northeast",
+    "name": "Northeast",
+    "avg_price": 8.5,
+    "product_count": 200,
+    "price_min": 3.03,
+    "price_max": 20.73
+  },
+  {
+    "id": "north-atlantic",
+    "name": "North Atlantic",
+    "avg_price": 8.6,
+    "product_count": 200,
+    "price_min": 3.33,
+    "price_max": 17.73
+  },
+  {
+    "id": "atlantic-coast",
+    "name": "Atlantic Coast",
+    "avg_price": 8.44,
+    "product_count": 200,
+    "price_min": 3.11,
+    "price_max": 23.69
+  },
+  {
+    "id": "southeast",
+    "name": "Southeast",
+    "avg_price": 7.44,
+    "product_count": 200,
+    "price_min": 2.52,
+    "price_max": 21.74
+  },
+  {
+    "id": "south-florida",
+    "name": "South Florida",
+    "avg_price": 9.01,
+    "product_count": 200,
+    "price_min": 3.44,
+    "price_max": 28.31
+  },
+  {
+    "id": "north-florida",
+    "name": "North Florida",
+    "avg_price": 7.5,
+    "product_count": 200,
+    "price_min": 2.85,
+    "price_max": 18.45
+  },
+  {
+    "id": "gulf-coast",
+    "name": "Gulf Coast",
+    "avg_price": 7.07,
+    "product_count": 200,
+    "price_min": 2.71,
+    "price_max": 17.83
+  },
+  {
+    "id": "interior-texas",
+    "name": "Interior Texas",
+    "avg_price": 6.98,
+    "product_count": 200,
+    "price_min": 2.5,
+    "price_max": 22.51
+  },
+  {
+    "id": "midwest",
+    "name": "Midwest",
+    "avg_price": 7.2,
+    "product_count": 200,
+    "price_min": 2.53,
+    "price_max": 20
+  },
+  {
+    "id": "mountain-west",
+    "name": "Mountain West",
+    "avg_price": 8.06,
+    "product_count": 200,
+    "price_min": 2.88,
+    "price_max": 19.6
+  },
+  {
+    "id": "pacific-northwest",
+    "name": "Pacific Northwest",
+    "avg_price": 8.56,
+    "product_count": 200,
+    "price_min": 2.97,
+    "price_max": 24.14
+  },
+  {
+    "id": "southern-california",
+    "name": "Southern California",
+    "avg_price": 9.8,
+    "product_count": 200,
+    "price_min": 3.32,
+    "price_max": 26.08
+  },
+  {
+    "id": "great-plains",
+    "name": "Great Plains",
+    "avg_price": 7.07,
+    "product_count": 200,
+    "price_min": 2.79,
+    "price_max": 18.28
+  }
+]
