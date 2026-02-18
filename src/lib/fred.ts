@@ -31,8 +31,14 @@ async function fetchFromFred(seriesId: string): Promise<Observation[]> {
     sort_order: "asc",
   });
 
-  const res = await fetch(`${FRED_BASE_URL}?${params}`);
-  if (!res.ok) return [];
+  const url = `${FRED_BASE_URL}?${params}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error(
+      `[FRED] Fetch failed for ${seriesId}: HTTP ${res.status} ${res.statusText}`
+    );
+    return [];
+  }
 
   const data: FredResponse = await res.json();
   return data.observations
