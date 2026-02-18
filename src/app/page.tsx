@@ -6,12 +6,11 @@ import EconomicDashboard from "@/components/economic/EconomicDashboard";
 import RegionMap from "@/components/map/RegionMap";
 import type { RegionSummary } from "@/types/region";
 
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function HomePage() {
   const { data: regions, isLoading } = useSWR<RegionSummary[]>(
-    `${BASE_PATH}/data/regions.json`,
+    "/api/regions",
     fetcher
   );
 

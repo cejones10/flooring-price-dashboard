@@ -12,6 +12,8 @@ export interface ScrapedProduct {
   brand: string;
   url: string;
   length: number;
+  externalId: string;
+  janka_hardness?: number;
 }
 
 export abstract class BaseScraper {
@@ -57,6 +59,12 @@ export abstract class BaseScraper {
     if (lower.includes("engineered")) return "engineered";
     if (lower.includes("unfinished")) return "unfinished";
     return "solid";
+  }
+
+  /** Random delay between min and max milliseconds */
+  protected delay(minMs: number, maxMs: number): Promise<void> {
+    const ms = minMs + Math.random() * (maxMs - minMs);
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   async scrapeAll(): Promise<ScrapedProduct[]> {

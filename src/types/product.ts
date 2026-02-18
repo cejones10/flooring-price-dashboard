@@ -14,6 +14,7 @@ export interface Product {
   retailer: string;
   brand: string;
   url: string;
+  external_id?: string | null;
   last_updated: string;
 }
 

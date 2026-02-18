@@ -6,13 +6,13 @@ import IndicatorCard from "./IndicatorCard";
 import IndicatorChart from "./IndicatorChart";
 import type { Indicator } from "@/types/economic";
 
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function EconomicDashboard() {
   const { data: indicators } = useSWR<Indicator[]>(
-    `${BASE_PATH}/data/economic.json`,
-    fetcher
+    "/api/economic",
+    fetcher,
+    { refreshInterval: 30 * 60 * 1000 }
   );
   const [expanded, setExpanded] = useState<Indicator | null>(null);
 

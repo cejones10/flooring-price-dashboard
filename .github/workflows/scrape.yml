@@ -1,0 +1,52 @@
+name: Scrape Competitor Pricing
+
+on:
+  schedule:
+    # Run every Monday at 6 AM ET (11:00 UTC)
+    # The job itself checks for even-week cadence (biweekly)
+    - cron: "0 11 * * 1"
+  workflow_dispatch:
+    # Manual trigger bypasses the biweekly check
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check biweekly cadence
+        if: github.event_name == 'schedule'
+        run: |
+          WEEK=$(date +%V)
+          if [ $((WEEK % 2)) -ne 0 ]; then
+            echo "Odd week ($WEEK) — skipping for biweekly cadence"
+            echo "SKIP=true" >> $GITHUB_ENV
+          else
+            echo "Even week ($WEEK) — running scrape"
+            echo "SKIP=false" >> $GITHUB_ENV
+          fi
+
+      - name: Exit if odd week
+        if: env.SKIP == 'true'
+        run: |
+          echo "Skipping — biweekly cadence (odd week)"
+          exit 0
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install Playwright Firefox
+        run: npx playwright install firefox --with-deps
+
+      - name: Run scrapers
+        run: npm run scrape
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
