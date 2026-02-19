@@ -177,16 +177,21 @@ export class HomeDepotScraper extends BaseScraper {
 
   /**
    * Check if a page loaded successfully or hit a block / error page.
-   * Returns true if blocked.
+   * Returns true if blocked. Does NOT treat empty titles as blocks
+   * since HD is a SPA where the title loads after JS executes.
    */
   private async isBlocked(page: Page): Promise<boolean> {
     try {
       const title = await page.title();
-      if (title === "Error Page" || title === "") return true;
+      if (title === "Error Page") return true;
       const bodySnippet = await page
-        .evaluate(() => document.body?.innerText?.substring(0, 200) || "")
+        .evaluate(() => document.body?.innerText?.substring(0, 500) || "")
         .catch(() => "");
-      if (bodySnippet.includes("Something went wrong")) return true;
+      if (
+        bodySnippet.includes("Something went wrong") ||
+        bodySnippet.includes("Access Denied") ||
+        bodySnippet.includes("are not a robot")
+      ) return true;
       return false;
     } catch {
       return true;
@@ -205,17 +210,25 @@ export class HomeDepotScraper extends BaseScraper {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const resp = await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeout: 45000,
+          waitUntil: "load",
+          timeout: 60000,
         });
 
         const status = resp?.status() ?? 0;
 
+        // Brief settle time for SPA to initialize before checking block status
+        await this.delay(2000, 3000);
+
         if (status === 403 || (await this.isBlocked(page))) {
           const backoffSec = Math.min(30 * Math.pow(2, attempt - 1), 300);
+          const diagTitle = await page.title().catch(() => "(error)");
+          const diagBody = await page.evaluate(() =>
+            document.body?.innerText?.substring(0, 150) || "(empty)"
+          ).catch(() => "(error)");
           console.warn(
-            `  [HD] Blocked (403/error) on attempt ${attempt}/${maxRetries} — backing off ${backoffSec}s`
+            `  [HD] Blocked (status=${status}, title="${diagTitle}") on attempt ${attempt}/${maxRetries} — backing off ${backoffSec}s`
           );
+          console.warn(`  [HD] Body preview: ${diagBody.replace(/\n/g, " ").substring(0, 120)}`);
           this.consecutiveFailures++;
           await this.delay(backoffSec * 1000, backoffSec * 1000 * 1.2);
           continue;
