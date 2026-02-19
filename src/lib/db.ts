@@ -10,7 +10,7 @@ export function getDb(): Client {
 
   client = createClient({
     url,
-    authToken: process.env.TURSO_AUTH_TOKEN,
+    authToken: process.env.TURSO_AUTH_TOKEN?.trim(),
   });
 
   return client;
