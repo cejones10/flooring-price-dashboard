@@ -21,7 +21,8 @@ const HD_CATEGORIES: { url: string; typeHint: string }[] = [
   },
 ];
 
-const MAX_PAGES = 20;
+const IS_CI = !!process.env.GITHUB_ACTIONS;
+const MAX_PAGES = 4;
 
 // Rotate user-agents so successive regions look like different visitors
 const USER_AGENTS = [
@@ -272,9 +273,9 @@ export class HomeDepotScraper extends BaseScraper {
             // If we've hit too many consecutive failures, abort early
             if (this.consecutiveFailures >= 5) {
               console.warn(
-                `  [HD] Too many consecutive failures (${this.consecutiveFailures}), pausing 5 min before continuing`
+                `  [HD] Too many consecutive failures (${this.consecutiveFailures}), pausing 10 min before continuing`
               );
-              await this.delay(300000, 330000);
+              await this.delay(600000, 660000);
               this.consecutiveFailures = 0;
             }
 
@@ -340,8 +341,8 @@ export class HomeDepotScraper extends BaseScraper {
               consecutiveEmpty = 0;
             }
 
-            // Generous delay between pages — randomized to look organic
-            await this.delay(6000, 14000);
+            // Delay between pages — lighter on CI (fresh IP), heavier locally
+            await this.delay(IS_CI ? 8000 : 20000, IS_CI ? 15000 : 35000);
           } catch (err) {
             console.error(
               `  [HD] Error on page ${pageNum} of ${category.typeHint}:`,
@@ -351,8 +352,8 @@ export class HomeDepotScraper extends BaseScraper {
           }
         }
 
-        // Longer delay between categories
-        await this.delay(10000, 20000);
+        // Delay between categories
+        await this.delay(IS_CI ? 10000 : 30000, IS_CI ? 20000 : 60000);
       }
     } finally {
       if (page) {
@@ -436,12 +437,29 @@ export class HomeDepotScraper extends BaseScraper {
     };
   }
 
-  async scrapeAllRegions(): Promise<Map<string, ScrapedProduct[]>> {
+  async scrapeAllRegions(
+    skipRegions: Set<string> = new Set(),
+    onRegionComplete?: (regionId: string, products: ScrapedProduct[]) => Promise<void>,
+    maxRegions?: number
+  ): Promise<Map<string, ScrapedProduct[]>> {
     const regionProducts = new Map<string, ScrapedProduct[]>();
+    let regionsScraped = 0;
 
     try {
       for (let i = 0; i < REGION_STORES.length; i++) {
+        if (maxRegions && regionsScraped >= maxRegions) {
+          console.log(`  [HD] Reached max regions (${maxRegions}) — stopping`);
+          break;
+        }
+
         const regionStore = REGION_STORES[i];
+
+        if (skipRegions.has(regionStore.regionId)) {
+          console.log(
+            `  [HD] Skipping ${regionStore.regionName} — already has recent data`
+          );
+          continue;
+        }
 
         // Recycle browser every 4 regions for a fresh TLS fingerprint
         if (i > 0 && i % 4 === 0) {
@@ -454,25 +472,33 @@ export class HomeDepotScraper extends BaseScraper {
         try {
           const products = await this.scrapeRegion(regionStore, i);
           regionProducts.set(regionStore.regionId, products);
+          regionsScraped++;
           console.log(
             `[HD] ${regionStore.regionName}: ${products.length} products total`
           );
+
+          // Immediately persist to DB via callback
+          if (onRegionComplete && products.length > 0) {
+            await onRegionComplete(regionStore.regionId, products);
+          }
         } catch (err) {
           console.error(
             `[HD] Failed region ${regionStore.regionName}:`,
             err
           );
           regionProducts.set(regionStore.regionId, []);
+          regionsScraped++;
         }
 
-        // Longer delays between regions — randomized and generous
-        const baseDelay = 25000 + Math.random() * 35000; // 25-60s
-        // Add jitter based on consecutive failures
-        const jitter = this.consecutiveFailures * 10000;
+        // Delay between regions — CI gets fresh IPs, local needs longer cooldown
+        const baseDelay = IS_CI
+          ? 60000 + Math.random() * 60000   // CI: 1-2 minutes
+          : 180000 + Math.random() * 120000; // Local: 3-5 minutes
+        const jitter = this.consecutiveFailures * (IS_CI ? 15000 : 30000);
         console.log(
           `  [HD] Waiting ${((baseDelay + jitter) / 1000).toFixed(0)}s before next region...`
         );
-        await this.delay(baseDelay + jitter, baseDelay + jitter + 5000);
+        await this.delay(baseDelay + jitter, baseDelay + jitter + 10000);
       }
     } finally {
       if (this.browser) {

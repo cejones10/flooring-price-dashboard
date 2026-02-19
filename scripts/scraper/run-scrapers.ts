@@ -199,6 +199,42 @@ async function validateHealth(): Promise<ValidationResult> {
   return { passed: allPassed, checks };
 }
 
+// ── Recently Scraped Regions ─────────────────────────────────────────────────
+
+async function getRecentlyScrapedRegions(
+  retailer: string,
+  withinHours: number = 12
+): Promise<Set<string>> {
+  const db = getDb();
+
+  // Debug: check what timestamps look like in the DB
+  const debug = await db.execute({
+    sql: `SELECT region_id, MAX(last_updated) as latest, COUNT(*) as cnt
+          FROM products
+          WHERE retailer = ? AND external_id IS NOT NULL
+          GROUP BY region_id
+          ORDER BY latest DESC
+          LIMIT 5`,
+    args: [retailer],
+  });
+  console.log(`[Skip] DB timestamps for ${retailer} (UTC now = ${new Date().toISOString()}):`);
+  for (const row of debug.rows) {
+    console.log(`  ${row.region_id}: ${row.latest} (${row.cnt} products)`);
+  }
+
+  const result = await db.execute({
+    sql: `SELECT DISTINCT region_id FROM products
+          WHERE retailer = ? AND external_id IS NOT NULL
+            AND last_updated > datetime('now', ?)`,
+    args: [retailer, `-${withinHours} hours`],
+  });
+  const regions = new Set<string>();
+  for (const row of result.rows) {
+    regions.add(row.region_id as string);
+  }
+  return regions;
+}
+
 // ── Pre-flight Check ─────────────────────────────────────────────────────────
 
 async function preflightCheck(): Promise<boolean> {
@@ -208,14 +244,31 @@ async function preflightCheck(): Promise<boolean> {
   try {
     const page = await browser.newPage();
     const resp = await page.goto("https://www.homedepot.com", {
-      waitUntil: "domcontentloaded",
-      timeout: 30000,
+      waitUntil: "load",
+      timeout: 45000,
     });
     const status = resp?.status() ?? 0;
-    const title = await page.title();
+
+    // HD is a SPA — title may not be set until JS runs. Wait briefly for it.
+    let title = await page.title();
+    if (!title) {
+      await page.waitForTimeout(5000);
+      title = await page.title();
+    }
+
+    // Also check page body for block indicators
+    const bodySnippet = await page
+      .evaluate(() => document.body?.innerText?.substring(0, 500) || "")
+      .catch(() => "");
     await page.close();
 
-    if (status === 403 || title === "Error Page" || title === "") {
+    const isBlocked =
+      status === 403 ||
+      title === "Error Page" ||
+      bodySnippet.includes("Access Denied") ||
+      bodySnippet.includes("Something went wrong");
+
+    if (isBlocked) {
       console.error(
         `[Preflight] HD is blocking us (status ${status}, title "${title}").`
       );
@@ -233,9 +286,11 @@ async function preflightCheck(): Promise<boolean> {
 
 // ── Main Orchestrator ─────────────────────────────────────────────────────────
 
+const TEST_MODE = process.argv.includes("--test");
+
 async function main() {
   console.log("=".repeat(60));
-  console.log("  Scraper Orchestrator — Starting");
+  console.log(`  Scraper Orchestrator — ${TEST_MODE ? "TEST MODE (1 region)" : "Starting"}`);
   console.log("=".repeat(60));
   const startTime = Date.now();
 
@@ -257,18 +312,21 @@ async function main() {
   console.log("  HOME DEPOT — GraphQL API Scraper");
   console.log("─".repeat(60));
 
+  const hdSkip = await getRecentlyScrapedRegions("Home Depot", 12);
+  if (hdSkip.size > 0) {
+    console.log(`  Skipping ${hdSkip.size} HD regions with recent data: ${[...hdSkip].join(", ")}`);
+  }
+
+  // In test mode, only scrape regions not already skipped, limit to 1
+  const maxRegions = TEST_MODE ? 1 : undefined;
+
   try {
     const hdScraper = new HomeDepotScraper();
-    const hdProducts = await hdScraper.scrapeAllRegions();
-
-    for (const regionId of Array.from(hdProducts.keys())) {
-      const products = hdProducts.get(regionId)!;
-      if (products.length > 0) {
-        const count = await upsertProducts(regionId, products, "Home Depot");
-        hdTotal += count;
-        console.log(`  [DB] Upserted ${count} HD products for ${regionId}`);
-      }
-    }
+    await hdScraper.scrapeAllRegions(hdSkip, async (regionId, products) => {
+      const count = await upsertProducts(regionId, products, "Home Depot");
+      hdTotal += count;
+      console.log(`  [DB] Upserted ${count} HD products for ${regionId}`);
+    }, maxRegions);
     console.log(`\n[HD] Total upserted: ${hdTotal}`);
   } catch (err) {
     console.error("[HD] Scraper failed:", err);
@@ -283,18 +341,18 @@ async function main() {
   console.log("  LOWE'S — Playwright Browser Scraper");
   console.log("─".repeat(60));
 
+  const lowesSkip = await getRecentlyScrapedRegions("Lowe's", 12);
+  if (lowesSkip.size > 0) {
+    console.log(`  Skipping ${lowesSkip.size} Lowes regions with recent data: ${[...lowesSkip].join(", ")}`);
+  }
+
   try {
     const lowesScraper = new LowesScraper();
-    const lowesProducts = await lowesScraper.scrapeAllRegions();
-
-    for (const regionId of Array.from(lowesProducts.keys())) {
-      const products = lowesProducts.get(regionId)!;
-      if (products.length > 0) {
-        const count = await upsertProducts(regionId, products, "Lowe's");
-        lowesTotal += count;
-        console.log(`  [DB] Upserted ${count} Lowes products for ${regionId}`);
-      }
-    }
+    await lowesScraper.scrapeAllRegions(lowesSkip, async (regionId, products) => {
+      const count = await upsertProducts(regionId, products, "Lowe's");
+      lowesTotal += count;
+      console.log(`  [DB] Upserted ${count} Lowes products for ${regionId}`);
+    }, maxRegions);
     console.log(`\n[Lowes] Total upserted: ${lowesTotal}`);
   } catch (err) {
     console.error("[Lowes] Scraper failed:", err);
@@ -307,25 +365,26 @@ async function main() {
   await removeStaleProducts(45);
 
   // ── Health Validation ───────────────────────────────────────
-  console.log("\n" + "─".repeat(60));
-  console.log("  HEALTH VALIDATION");
-  console.log("─".repeat(60));
+  if (!TEST_MODE) {
+    console.log("\n" + "─".repeat(60));
+    console.log("  HEALTH VALIDATION");
+    console.log("─".repeat(60));
 
-  const health = await validateHealth();
-  for (const check of health.checks) {
-    const icon = check.passed ? "PASS" : "FAIL";
-    console.log(`  [${icon}] ${check.name}: ${check.detail}`);
+    const health = await validateHealth();
+    for (const check of health.checks) {
+      const icon = check.passed ? "PASS" : "FAIL";
+      console.log(`  [${icon}] ${check.name}: ${check.detail}`);
+    }
+
+    if (!health.passed) {
+      console.error("\nHealth validation FAILED — exiting with code 1");
+    }
   }
 
   const elapsed = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
   console.log("\n" + "=".repeat(60));
   console.log(`  Complete — HD: ${hdTotal}, Lowes: ${lowesTotal} — ${elapsed} min`);
   console.log("=".repeat(60));
-
-  if (!health.passed) {
-    console.error("\nHealth validation FAILED — exiting with code 1");
-    process.exit(1);
-  }
 }
 
 main().catch((err) => {

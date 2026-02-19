@@ -21,7 +21,8 @@ const LOWES_CATEGORIES: Record<string, { url: string; typeHint: string }> = {
   },
 };
 
-const MAX_PAGES = 10;
+const IS_CI = !!process.env.GITHUB_ACTIONS;
+const MAX_PAGES = 4;
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
@@ -368,8 +369,8 @@ export class LowesScraper extends BaseScraper {
               consecutiveEmpty = 0;
             }
 
-            // Generous delay between pages
-            await this.delay(5000, 10000);
+            // Delay between pages
+            await this.delay(IS_CI ? 5000 : 10000, IS_CI ? 10000 : 18000);
           } catch (err) {
             console.error(
               `  [Lowes] Error on page ${pageNum} of ${category}:`,
@@ -380,7 +381,7 @@ export class LowesScraper extends BaseScraper {
         }
 
         // Delay between categories
-        await this.delay(8000, 15000);
+        await this.delay(IS_CI ? 5000 : 10000, IS_CI ? 10000 : 20000);
       }
     } finally {
       if (page) {
@@ -509,12 +510,29 @@ export class LowesScraper extends BaseScraper {
   }
 
   /** Scrape all regions */
-  async scrapeAllRegions(): Promise<Map<string, ScrapedProduct[]>> {
+  async scrapeAllRegions(
+    skipRegions: Set<string> = new Set(),
+    onRegionComplete?: (regionId: string, products: ScrapedProduct[]) => Promise<void>,
+    maxRegions?: number
+  ): Promise<Map<string, ScrapedProduct[]>> {
     const regionProducts = new Map<string, ScrapedProduct[]>();
+    let regionsScraped = 0;
 
     try {
       for (let i = 0; i < REGION_STORES.length; i++) {
+        if (maxRegions && regionsScraped >= maxRegions) {
+          console.log(`  [Lowes] Reached max regions (${maxRegions}) — stopping`);
+          break;
+        }
+
         const regionStore = REGION_STORES[i];
+
+        if (skipRegions.has(regionStore.regionId)) {
+          console.log(
+            `  [Lowes] Skipping ${regionStore.regionName} — already has recent data`
+          );
+          continue;
+        }
 
         // Recycle browser every 4 regions for a fresh TLS fingerprint
         if (i > 0 && i % 4 === 0) {
@@ -526,20 +544,29 @@ export class LowesScraper extends BaseScraper {
         try {
           const products = await this.scrapeRegion(regionStore, i);
           regionProducts.set(regionStore.regionId, products);
+          regionsScraped++;
           console.log(
             `[Lowes] ${regionStore.regionName}: ${products.length} products`
           );
+
+          // Immediately persist to DB via callback
+          if (onRegionComplete && products.length > 0) {
+            await onRegionComplete(regionStore.regionId, products);
+          }
         } catch (err) {
           console.error(
             `[Lowes] Failed region ${regionStore.regionName}:`,
             err
           );
           regionProducts.set(regionStore.regionId, []);
+          regionsScraped++;
         }
 
-        // Generous delay between regions
-        const baseDelay = 15000 + Math.random() * 25000; // 15-40s
-        const jitter = this.consecutiveFailures * 10000;
+        // Delay between regions — CI gets fresh IPs, local needs longer cooldown
+        const baseDelay = IS_CI
+          ? 45000 + Math.random() * 45000    // CI: 45-90s
+          : 120000 + Math.random() * 60000;  // Local: 2-3 min
+        const jitter = this.consecutiveFailures * (IS_CI ? 10000 : 20000);
         console.log(
           `  [Lowes] Waiting ${((baseDelay + jitter) / 1000).toFixed(0)}s before next region...`
         );

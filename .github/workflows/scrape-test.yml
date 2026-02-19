@@ -1,16 +1,13 @@
-name: Scrape Competitor Pricing
+name: Scrape Test (1 region)
 
 on:
-  schedule:
-    # Run every Monday at 6 AM ET (11:00 UTC)
-    - cron: "0 11 * * 1"
   workflow_dispatch:
-    # Manual trigger — always runs
+    # Manual trigger only — quick validation run
 
 jobs:
-  scrape:
+  scrape-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -26,8 +23,8 @@ jobs:
       - name: Install Playwright Firefox
         run: npx playwright install firefox --with-deps
 
-      - name: Run scrapers
-        run: npm run scrape
+      - name: Run scraper (test mode — 1 region only)
+        run: npm run scrape:test
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
